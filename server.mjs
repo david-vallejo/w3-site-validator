@@ -5,13 +5,101 @@
 
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const TOOL_DIR = dirname(fileURLToPath(import.meta.url));
 const REPORTS_DIR = join(TOOL_DIR, 'reports');
 const PORT = process.env.PORT || 8321;
+const RETENTION_DAYS = parseFloat(process.env.RETENTION_DAYS || '5');
+
+// Optional persistence: sync report JSONs to a GitHub repo so they survive
+// ephemeral-disk restarts. Configure with GH_REPORTS_TOKEN (fine-grained PAT,
+// contents read/write on that one repo) and GH_REPORTS_REPO (owner/name).
+const GH_TOKEN = process.env.GH_REPORTS_TOKEN;
+const GH_REPO = process.env.GH_REPORTS_REPO || 'david-vallejo/w3-validator-reports';
+
+async function gh(path, opts = {}) {
+  return fetch(`https://api.github.com${path}`, {
+    ...opts,
+    headers: {
+      Authorization: `Bearer ${GH_TOKEN}`, 'User-Agent': 'w3-validator',
+      Accept: 'application/vnd.github+json', ...(opts.headers || {}),
+    },
+  });
+}
+
+async function ghTree() {
+  const res = await gh(`/repos/${GH_REPO}/git/trees/main?recursive=1`);
+  if (!res.ok) return [];
+  return (await res.json()).tree || [];
+}
+
+function scanDate(host) {
+  try {
+    const f = join(REPORTS_DIR, host, 'report.json');
+    const t = JSON.parse(readFileSync(f, 'utf8')).scannedAt;
+    return t ? new Date(t) : statSync(f).mtime;
+  } catch { return new Date(0); }
+}
+
+async function syncDown() {
+  if (!GH_TOKEN) return;
+  try {
+    const files = (await ghTree()).filter(t => /^[^/]+\/report\.json$/.test(t.path));
+    let n = 0;
+    for (const f of files) {
+      const raw = await gh(`/repos/${GH_REPO}/contents/${f.path}?ref=main`, { headers: { Accept: 'application/vnd.github.raw' } });
+      if (!raw.ok) continue;
+      const dir = join(REPORTS_DIR, f.path.split('/')[0]);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'report.json'), await raw.text());
+      n++;
+    }
+    if (n) console.log(`Restored ${n} report(s) from ${GH_REPO}`);
+  } catch (e) { console.error('GitHub sync-down failed:', e.message); }
+}
+
+async function syncUp(host) {
+  if (!GH_TOKEN) return;
+  try {
+    const path = `${host}/report.json`;
+    const content = readFileSync(join(REPORTS_DIR, host, 'report.json')).toString('base64');
+    const sha = (await ghTree()).find(t => t.path === path)?.sha;
+    const res = await gh(`/repos/${GH_REPO}/contents/${path}`, {
+      method: 'PUT',
+      body: JSON.stringify({ message: `scan ${host}`, content, ...(sha ? { sha } : {}) }),
+    });
+    if (!res.ok) throw new Error(`PUT ${res.status}`);
+    console.log(`Backed up ${host} report to ${GH_REPO}`);
+  } catch (e) { console.error('GitHub sync-up failed:', e.message); }
+}
+
+async function prune() {
+  const cutoff = Date.now() - RETENTION_DAYS * 24 * 3600 * 1000;
+  if (existsSync(REPORTS_DIR)) {
+    for (const host of readdirSync(REPORTS_DIR)) {
+      if (scanDate(host).getTime() < cutoff) {
+        rmSync(join(REPORTS_DIR, host), { recursive: true, force: true });
+        console.log(`Pruned ${host} (older than ${RETENTION_DAYS} days)`);
+      }
+    }
+  }
+  if (!GH_TOKEN) return;
+  try {
+    const files = (await ghTree()).filter(t => /^[^/]+\/report\.json$/.test(t.path));
+    for (const f of files) {
+      const host = f.path.split('/')[0];
+      if (existsSync(join(REPORTS_DIR, host, 'report.json'))) continue; // still current locally
+      await gh(`/repos/${GH_REPO}/contents/${f.path}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ message: `prune ${host} (>${RETENTION_DAYS}d)`, sha: f.sha }),
+      });
+      console.log(`Pruned ${host} from ${GH_REPO}`);
+    }
+  } catch (e) { console.error('GitHub prune failed:', e.message); }
+}
 
 // one scan at a time; jobs keyed by hostname
 const jobs = new Map(); // host -> {running, log[], startedAt, error}
@@ -199,7 +287,11 @@ const server = createServer(async (req, res) => {
     const onData = d => job.log.push(...d.toString().split('\n').filter(Boolean));
     child.stdout.on('data', onData);
     child.stderr.on('data', onData);
-    child.on('close', code => { job.running = false; if (code !== 0) job.error = `exit ${code}`; });
+    child.on('close', code => {
+      job.running = false;
+      if (code !== 0) job.error = `exit ${code}`;
+      else syncUp(host).then(prune);
+    });
     return send(200, JSON.stringify({ host }), 'application/json');
   }
 
@@ -224,4 +316,6 @@ const server = createServer(async (req, res) => {
   send(404, page('Not found', '<div class="card">404</div>'));
 });
 
-server.listen(PORT, () => console.log(`W3C Site Validator UI → http://localhost:${PORT}`));
+await syncDown();
+await prune();
+server.listen(PORT, () => console.log(`W3C Site Validator UI → http://localhost:${PORT}${GH_TOKEN ? ` (reports synced to ${GH_REPO}, ${RETENTION_DAYS}-day retention)` : ''}`));

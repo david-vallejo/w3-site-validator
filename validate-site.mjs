@@ -152,7 +152,7 @@ const cleanPages = Object.values(fileToUrl).filter(u => !messages.some(m => (fil
 
 // --- 5. Reports ---
 const json = {
-  site: base.href, scannedAt: null, pagesScanned: Object.keys(fileToUrl).length,
+  site: base.href, scannedAt: new Date().toISOString(), pagesScanned: Object.keys(fileToUrl).length,
   totalErrors, totalWarnings, cleanPages, fetchFailures: failed,
   groups: sorted.map(g => ({ ...g, pages: [...g.pages].sort() })),
   byPage,
