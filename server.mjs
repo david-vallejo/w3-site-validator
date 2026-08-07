@@ -114,9 +114,19 @@ function reportPage(host) {
 ${issues}`);
 }
 
+const PASSWORD = process.env.ACCESS_PASSWORD;
+
 const server = createServer(async (req, res) => {
   const u = new URL(req.url, `http://localhost:${PORT}`);
   const send = (code, body, type = 'text/html') => { res.writeHead(code, { 'Content-Type': type }); res.end(body); };
+
+  if (PASSWORD) {
+    const given = Buffer.from((req.headers.authorization || '').replace(/^Basic /, ''), 'base64').toString().split(':').pop();
+    if (given !== PASSWORD) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="W3C Site Validator"' });
+      return res.end('Auth required');
+    }
+  }
 
   if (req.method === 'GET' && u.pathname === '/') return send(200, homePage());
 
