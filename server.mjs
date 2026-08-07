@@ -121,9 +121,26 @@ ${rows.map(x => `<tr><td><a href="/r/${esc(host)}/page?path=${encodeURIComponent
  <div class="stat"><b>${r.groups.length}</b><span>distinct issues</span></div>
  <div class="stat"><b style="color:var(--ok)">${r.cleanPages}</b><span>clean pages</span></div>
 </div>
-<div class="card"><b>${esc(r.site)}</b> — issues grouped by root cause, errors first, most frequent first. A group spanning many pages = one shared include/template to fix.</div>
+<div class="card" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+ <b>${esc(r.site)}</b> — issues grouped by root cause, errors first, most frequent first. A group spanning many pages = one shared include/template to fix.
+ <span style="margin-left:auto;white-space:nowrap"><button id="rescan" style="margin:0">Re-scan this site</button>
+ <a href="/" style="margin-left:12px">New scan →</a></span>
+ <pre class="log" id="rlog" style="display:none;width:100%"></pre>
+</div>
 ${pageBrowser}
-${issues}`);
+${issues}
+<script>
+const rb=document.getElementById('rescan'),rlog=document.getElementById('rlog');
+rb.onclick=async()=>{rb.disabled=true;rlog.style.display='block';rlog.textContent='Starting…\\n';
+ const res=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:${JSON.stringify(r.site)}})});
+ const {host:h,error}=await res.json();
+ if(error){rlog.textContent+='ERROR: '+error;rb.disabled=false;return}
+ const poll=setInterval(async()=>{
+   const s=await(await fetch('/api/status?host='+h)).json();
+   rlog.textContent=s.log.join('\\n');rlog.scrollTop=rlog.scrollHeight;
+   if(!s.running){clearInterval(poll);if(s.error){rlog.textContent+='\\nFAILED';rb.disabled=false}else location.reload()}
+ },1500)};
+</script>`);
 }
 
 function pageDetailPage(host, path) {
