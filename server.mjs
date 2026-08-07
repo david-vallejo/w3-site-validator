@@ -163,7 +163,7 @@ function homePage() {
   return page('W3C Site Validator', `
 <div class="card"><form id="f">
   <label for="url"><b>Scan a site</b></label>
-  <input type="url" id="url" placeholder="https://anvilfence.com/" required>
+  <input type="url" id="url" placeholder="https://website.com" required>
   <button id="go">Scan all pages</button>
 </form><pre class="log" id="log" style="display:none"></pre></div>
 ${rows ? `<div class="card"><b>Past reports</b><table><tr><th>Site</th><th>Pages</th><th>Errors</th><th>Warnings</th><th>Distinct issues</th><th>Scanned (UTC)</th></tr>${rows}</table></div>` : ''}
