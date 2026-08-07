@@ -131,6 +131,20 @@ for (const m of messages) {
   if (g.examples.length < 3) g.examples.push({ url, line: m.lastLine, exact: m.message, extract: (m.extract || '').trim().slice(0, 200) });
 }
 
+const byPage = {};
+for (const m of messages) {
+  const slug = decodeURIComponent(m.url || '').split('/').pop();
+  const url = fileToUrl[slug];
+  if (!url) continue;
+  (byPage[url] ??= []).push({
+    type: m.type === 'info' ? 'warning' : m.type,
+    line: m.lastLine || 0,
+    message: m.message,
+    extract: (m.extract || '').trim().slice(0, 300),
+  });
+}
+for (const list of Object.values(byPage)) list.sort((a, b) => a.line - b.line);
+
 const sorted = [...groups.values()].sort((a, b) => (a.type === 'error' ? 0 : 1) - (b.type === 'error' ? 0 : 1) || b.count - a.count);
 const totalErrors = messages.filter(m => m.type === 'error').length;
 const totalWarnings = messages.length - totalErrors;
@@ -141,6 +155,7 @@ const json = {
   site: base.href, scannedAt: null, pagesScanned: Object.keys(fileToUrl).length,
   totalErrors, totalWarnings, cleanPages, fetchFailures: failed,
   groups: sorted.map(g => ({ ...g, pages: [...g.pages].sort() })),
+  byPage,
 };
 writeFileSync(join(OUT_DIR, 'report.json'), JSON.stringify(json, null, 2));
 

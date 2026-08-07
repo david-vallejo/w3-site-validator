@@ -102,6 +102,17 @@ function reportPage(host) {
  ${g.examples.map(ex => `<div class="meta"><a href="${esc(ex.url)}" target="_blank">${esc(new URL(ex.url).pathname)}</a> line ${ex.line} — <code>${esc(ex.extract)}</code></div>`).join('')}
  ${g.pages.length <= 30 ? `<ul class="pages">${g.pages.map(p => `<li>${esc(new URL(p).pathname)}</li>`).join('')}</ul>` : `<div class="meta">(${g.pages.length} pages — full list in report.json)</div>`}
 </details>`).join('');
+  let pageBrowser = '';
+  if (r.byPage) {
+    const rows = Object.entries(r.byPage)
+      .map(([u, msgs]) => ({ u, path: new URL(u).pathname, errs: msgs.filter(m => m.type === 'error').length, warns: msgs.filter(m => m.type !== 'error').length }))
+      .sort((a, b) => b.errs - a.errs || b.warns - a.warns);
+    pageBrowser = `<details class="card"><summary style="cursor:pointer"><b>Browse by page</b> — ${rows.length} pages, worst first</summary>
+<table><tr><th>Page</th><th>Errors</th><th>Warnings</th></tr>
+${rows.map(x => `<tr><td><a href="/r/${esc(host)}/page?path=${encodeURIComponent(x.path)}">${esc(x.path)}</a></td>
+ <td style="color:var(--err);font-weight:600">${x.errs}</td><td style="color:var(--warn)">${x.warns}</td></tr>`).join('')}
+</table></details>`;
+  }
   return page(`${host} — W3C report`, `
 <div class="stats">
  <div class="stat"><b>${r.pagesScanned}</b><span>pages scanned</span></div>
@@ -111,7 +122,33 @@ function reportPage(host) {
  <div class="stat"><b style="color:var(--ok)">${r.cleanPages}</b><span>clean pages</span></div>
 </div>
 <div class="card"><b>${esc(r.site)}</b> — issues grouped by root cause, errors first, most frequent first. A group spanning many pages = one shared include/template to fix.</div>
+${pageBrowser}
 ${issues}`);
+}
+
+function pageDetailPage(host, path) {
+  const f = join(REPORTS_DIR, host, 'report.json');
+  if (!existsSync(f)) return null;
+  const r = JSON.parse(readFileSync(f, 'utf8'));
+  if (!r.byPage) return page('No page data', '<div class="card">This report predates the per-page view — re-scan the site to enable it.</div>');
+  const entries = Object.entries(r.byPage)
+    .map(([u, msgs]) => ({ u, path: new URL(u).pathname, msgs }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  const idx = entries.findIndex(e => e.path === path);
+  if (idx === -1) return page('Not found', `<div class="card">No messages recorded for ${esc(path)} — it may be a clean page. <a href="/r/${esc(host)}">Back to report</a></div>`);
+  const { u, msgs } = entries[idx];
+  const nav = (i, label) => i >= 0 && i < entries.length
+    ? `<a href="/r/${esc(host)}/page?path=${encodeURIComponent(entries[i].path)}">${label} ${esc(entries[i].path)}</a>` : '';
+  const items = msgs.map((m, n) => `
+<div class="card"><span class="pill ${m.type}">${m.type.toUpperCase()}</span> <b>${n + 1} / ${msgs.length}</b> · line ${m.line}
+ <div style="margin:8px 0">${esc(m.message)}</div>
+ ${m.extract ? `<code>${esc(m.extract)}</code>` : ''}</div>`).join('');
+  return page(`${path} — ${host}`, `
+<div class="card"><b><a href="${esc(u)}" target="_blank">${esc(path)}</a></b> on <a href="/r/${esc(host)}">${esc(host)} report</a> —
+ ${msgs.filter(m => m.type === 'error').length} errors, ${msgs.filter(m => m.type !== 'error').length} warnings
+ <div class="meta" style="margin-top:8px">${nav(idx - 1, '←')} ${idx - 1 >= 0 && idx + 1 < entries.length ? ' · ' : ''} ${nav(idx + 1, '→')}</div>
+</div>
+${items}`);
 }
 
 const PASSWORD = process.env.ACCESS_PASSWORD;
@@ -157,6 +194,12 @@ const server = createServer(async (req, res) => {
   const rMatch = u.pathname.match(/^\/r\/([a-z0-9.-]+)$/);
   if (req.method === 'GET' && rMatch) {
     const html = reportPage(rMatch[1]);
+    return html ? send(200, html) : send(404, page('Not found', '<div class="card">No report for that site yet.</div>'));
+  }
+
+  const pMatch = u.pathname.match(/^\/r\/([a-z0-9.-]+)\/page$/);
+  if (req.method === 'GET' && pMatch) {
+    const html = pageDetailPage(pMatch[1], u.searchParams.get('path') || '');
     return html ? send(200, html) : send(404, page('Not found', '<div class="card">No report for that site yet.</div>'));
   }
 
