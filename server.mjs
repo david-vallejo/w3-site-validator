@@ -47,9 +47,10 @@ const CSS = `
   ul.pages{columns:2;font-size:13px;margin:8px 0;padding-left:18px}
 `;
 
-function page(title, body) {
+function page(title, body, nav = '') {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><style>${CSS}</style></head><body><div class="wrap">
+${nav ? `<div style="margin-bottom:14px;font-size:14px">${nav}</div>` : ''}
 <h1><a href="/">W3C Site Validator</a></h1><p class="sub">Batch-validates every page on a site (Nu HTML Checker, run locally) and groups errors by root cause.</p>
 ${body}</div></body></html>`;
 }
@@ -140,7 +141,7 @@ rb.onclick=async()=>{rb.disabled=true;rlog.style.display='block';rlog.textConten
    rlog.textContent=s.log.join('\\n');rlog.scrollTop=rlog.scrollHeight;
    if(!s.running){clearInterval(poll);if(s.error){rlog.textContent+='\\nFAILED';rb.disabled=false}else location.reload()}
  },1500)};
-</script>`);
+</script>`, `<a href="/">&larr; All scans</a>`);
 }
 
 function pageDetailPage(host, path) {
@@ -165,7 +166,7 @@ function pageDetailPage(host, path) {
  ${msgs.filter(m => m.type === 'error').length} errors, ${msgs.filter(m => m.type !== 'error').length} warnings
  <div class="meta" style="margin-top:8px">${nav(idx - 1, '←')} ${idx - 1 >= 0 && idx + 1 < entries.length ? ' · ' : ''} ${nav(idx + 1, '→')}</div>
 </div>
-${items}`);
+${items}`, `<a href="/r/${esc(host)}">&larr; Back to ${esc(host)} report</a>`);
 }
 
 const PASSWORD = process.env.ACCESS_PASSWORD;
