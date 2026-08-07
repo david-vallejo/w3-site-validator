@@ -1,0 +1,14 @@
+{
+  "name": "w3-site-validator",
+  "version": "1.0.0",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "scan": "node validate-site.mjs"
+  },
+  "description": "Batch W3C validation for whole websites, grouped by root cause",
+  "dependencies": {
+    "vnu-jar": "^26.8.6"
+  },
+  "type": "module"
+}
