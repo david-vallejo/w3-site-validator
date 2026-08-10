@@ -6,7 +6,7 @@
 // and writes a report grouped by error message so shared-include root causes
 // are obvious. Output: reports/<domain>/report.md, report.json, pages/
 
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -103,14 +103,10 @@ console.log(`Fetched ${Object.keys(fileToUrl).length}/${urls.length} pages${fail
 
 // --- 3. Validate all pages in one vnu pass ---
 console.log('Running Nu HTML Checker...');
-let vnuOut;
-try {
-  vnuOut = execFileSync('java', ['-jar', VNU_JAR, '--format', 'json', '--skip-non-html', PAGES_DIR],
-    { maxBuffer: 1024 * 1024 * 256, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
-} catch (e) {
-  // vnu exits non-zero when errors are found; the JSON is on stderr
-  vnuOut = (e.stderr || e.stdout || '').toString();
-}
+// vnu writes its JSON to stderr regardless of exit code
+const vnuRes = spawnSync('java', ['-jar', VNU_JAR, '--format', 'json', '--skip-non-html', PAGES_DIR],
+  { maxBuffer: 1024 * 1024 * 256 });
+const vnuOut = (vnuRes.stderr?.toString() || vnuRes.stdout?.toString() || '');
 const messages = JSON.parse(vnuOut || '{"messages":[]}').messages || [];
 
 // --- 4. Aggregate: group by normalized message ---
